@@ -16,30 +16,34 @@ namespace Elzahy
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // Configure MySQL Database
-            var connectionString = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING") 
-                ?? builder.Configuration.GetConnectionString("MySqlConnection")
-                ?? builder.Configuration.GetConnectionString("DefaultConnection");
+            // Configure Database
+            var mySqlEnvConnection = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING");
+            var sqlServerConnection = builder.Configuration.GetConnectionString("DefaultConnection");
 
-            if (string.IsNullOrEmpty(connectionString))
-                throw new Exception("Database connection string is missing. Set MYSQL_CONNECTION_STRING environment variable or configure ConnectionStrings:MySqlConnection in appsettings.json");
+            if (string.IsNullOrWhiteSpace(mySqlEnvConnection) && string.IsNullOrWhiteSpace(sqlServerConnection))
+                throw new Exception("Database connection string is missing. Set MYSQL_CONNECTION_STRING environment variable for MySQL or configure ConnectionStrings:DefaultConnection in appsettings.json for SQL Server");
 
-            // Use MySQL if connection string contains "mysql" or "Server=", otherwise use SQL Server
-            if (connectionString.Contains("mysql", StringComparison.OrdinalIgnoreCase) || connectionString.Contains("Server=") && !connectionString.Contains("Trusted_Connection"))
+            if (!string.IsNullOrWhiteSpace(mySqlEnvConnection))
             {
                 builder.Services.AddDbContext<AppDbContext>(options =>
-                    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+                    options.UseMySql(mySqlEnvConnection, ServerVersion.AutoDetect(mySqlEnvConnection)));
             }
             else
             {
                 builder.Services.AddDbContext<AppDbContext>(options =>
-                    options.UseSqlServer(connectionString));
+                    options.UseSqlServer(sqlServerConnection));
             }
 
             // Configure DataProtection
-            var dataProtectionKeysPath = Environment.GetEnvironmentVariable("DOTNET_DATAPROTECTION_KEYS") 
-                ?? builder.Configuration["DataProtection:KeysPath"] 
+            var dataProtectionKeysPath = Environment.GetEnvironmentVariable("DOTNET_DATAPROTECTION_KEYS")
+                ?? builder.Configuration["DataProtection:KeysPath"]
                 ?? "./keys";
+
+            try
+            {
+                Directory.CreateDirectory(dataProtectionKeysPath);
+            }
+            catch { }
 
             builder.Services.AddDataProtection()
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
@@ -48,13 +52,23 @@ namespace Elzahy
             // Configure CORS
             builder.Services.AddCors(options =>
             {
-                var frontendUrl = Environment.GetEnvironmentVariable("FRONTEND_URL") 
-                    ?? builder.Configuration["App:FrontendUrl"] 
-                    ?? "http://localhost:4200";
+                // Normalize all potential frontend origins (strip trailing slashes)
+                var configuredFrontendUrl = (Environment.GetEnvironmentVariable("FRONTEND_URL")
+                    ?? builder.Configuration["App:FrontendUrl"]
+                    ?? "https://elzahygroup.com").TrimEnd('/');
+
+                var allowedOrigins = new[]
+                {
+                    configuredFrontendUrl,
+                    "https://elzahygroup.com".TrimEnd('/'),
+                    "http://localhost:4200".TrimEnd('/')
+                }
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
                 options.AddPolicy("Default", policy =>
                 {
-                    policy.WithOrigins(frontendUrl, "https://angular-example-app.netlify.app")
+                    policy.WithOrigins(allowedOrigins)
                           .AllowAnyHeader()
                           .AllowAnyMethod()
                           .AllowCredentials();
@@ -62,7 +76,7 @@ namespace Elzahy
             });
 
             // Configure JWT Authentication
-            var jwtSecretKey = Environment.GetEnvironmentVariable("DOTNET_JWT_KEY") 
+            var jwtSecretKey = Environment.GetEnvironmentVariable("DOTNET_JWT_KEY")
                 ?? Environment.GetEnvironmentVariable("JWT__Key")
                 ?? builder.Configuration["JwtSettings:SecretKey"];
 
@@ -92,7 +106,6 @@ namespace Elzahy
                 };
             });
 
-            // Configure Authorization
             builder.Services.AddAuthorization();
 
             // Register Services
@@ -103,17 +116,16 @@ namespace Elzahy
             builder.Services.AddScoped<IProjectService, ProjectService>();
             builder.Services.AddScoped<IAwardService, AwardService>();
             builder.Services.AddScoped<IContactMessageService, ContactMessageService>();
+            builder.Services.AddScoped<IFileStorageService, FileStorageService>(); // NEW: File storage service
 
-            // Add Controllers
             builder.Services.AddControllers();
 
-            // Configure Swagger/OpenAPI - Always add it, but conditionally enable UI
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen(options =>
             {
-                options.SwaggerDoc("v1", new OpenApiInfo 
-                { 
-                    Title = "Elzahy Portfolio API", 
+                options.SwaggerDoc("v1", new OpenApiInfo
+                {
+                    Title = "Elzahy Portfolio API",
                     Version = "v1",
                     Description = "A production-ready API with 2FA authentication for Elzahy Portfolio"
                 });
@@ -125,7 +137,7 @@ namespace Elzahy
                     Scheme = "Bearer",
                     BearerFormat = "JWT",
                     In = ParameterLocation.Header,
-                    Description = "Enter 'Bearer' followed by your JWT token.\n\nExample: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    Description = "Enter 'Bearer' followed by your JWT token. Example: Bearer eyJhbGciOiJI..."
                 });
 
                 options.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -144,121 +156,132 @@ namespace Elzahy
                 });
             });
 
+            // Track DB readiness
+            var dbReady = true; // optimistic
+            builder.Services.AddSingleton(() => new { DbReady = dbReady });
+
             var app = builder.Build();
 
-            // Log environment information early
             var logger = app.Services.GetRequiredService<ILogger<Program>>();
-            logger.LogInformation("Application starting...");
-            logger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
-            logger.LogInformation("Is Development: {IsDevelopment}", app.Environment.IsDevelopment());
+            logger.LogInformation("Application starting... Environment={Environment} Development={IsDev}", app.Environment.EnvironmentName, app.Environment.IsDevelopment());
 
-            // Configure the HTTP request pipeline
-            // Enable Swagger in Development and optionally in other environments
-            if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", false))
+            // Ensure upload directories exist
+            var webRootPath = app.Environment.WebRootPath;
+            var uploadDirs = new[]
             {
-                app.UseSwagger();
-                app.UseSwaggerUI(c =>
-                {
-                    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Elzahy Portfolio API V1");
-                    c.RoutePrefix = string.Empty; // Set Swagger UI at app's root
-                    c.DocumentTitle = "Elzahy Portfolio API";
-                });
-                
-                logger.LogInformation("Swagger UI enabled at root path (/)");
-            }
-            else
-            {
-                logger.LogInformation("Swagger UI is disabled in {Environment} environment", app.Environment.EnvironmentName);
-            }
+                Path.Combine(webRootPath, "uploads"),
+                Path.Combine(webRootPath, "uploads", "images"),
+                Path.Combine(webRootPath, "uploads", "videos"),
+                Path.Combine(webRootPath, "uploads", "projects")
+            };
 
-            // Security Headers
-            app.Use(async (context, next) =>
+            foreach (var dir in uploadDirs)
             {
-                context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
-                context.Response.Headers.Add("X-Frame-Options", "DENY");
-                context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
-                context.Response.Headers.Add("Referrer-Policy", "strict-origin-when-cross-origin");
-                
-                if (!app.Environment.IsDevelopment())
+                if (!Directory.Exists(dir))
                 {
-                    context.Response.Headers.Add("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-                    context.Response.Headers.Add("Content-Security-Policy", 
-                        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;");
+                    Directory.CreateDirectory(dir);
+                    logger.LogInformation("Created upload directory: {Directory}", dir);
                 }
-                
-                await next();
+            }
+
+            app.UseSwagger();
+            app.UseSwaggerUI(c =>
+            {
+                c.SwaggerEndpoint("/swagger/v1/swagger.json", "Elzahy Portfolio API V1");
+                c.RoutePrefix = string.Empty;
+                c.DocumentTitle = "Elzahy Portfolio API";
+            });
+            logger.LogInformation("Swagger UI enabled");
+
+            // Configure static file serving for uploads
+            app.UseStaticFiles(); // Default wwwroot serving
+            
+            // Custom static files configuration for uploads with caching
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                RequestPath = "/uploads",
+                FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+                    Path.Combine(app.Environment.WebRootPath, "uploads")),
+                OnPrepareResponse = ctx =>
+                {
+                    // Set cache headers for uploaded files
+                    var headers = ctx.Context.Response.Headers;
+                    headers["Cache-Control"] = "public,max-age=31536000"; // 1 year
+                    headers["Expires"] = DateTime.UtcNow.AddYears(1).ToString("R");
+                }
             });
 
-            // Enforce HTTPS in production
-            if (!app.Environment.IsDevelopment())
-            {
-                app.UseHttpsRedirection();
-            }
+            // IMPORTANT: Explicit routing before CORS / Auth so CORS headers are applied
+            app.UseRouting();
 
             app.UseCors("Default");
-
             app.UseAuthentication();
             app.UseAuthorization();
 
-            app.MapControllers();
-
-            // Add a simple health check endpoint
-            app.MapGet("/health", () => Results.Ok(new { 
-                Status = "Healthy", 
+            // Simple readiness endpoint (reports DB status)
+            app.MapGet("/health", () => Results.Ok(new
+            {
+                Status = "Healthy",
                 Environment = app.Environment.EnvironmentName,
-                Timestamp = DateTime.UtcNow 
+                Timestamp = DateTime.UtcNow
             }));
 
-            // Add a root endpoint that redirects to Swagger in development
-            if (app.Environment.IsDevelopment())
+            app.MapGet("/readiness", () =>
             {
-                app.MapGet("/swagger", () => Results.Redirect("/"));
-            }
+                return dbReady
+                    ? Results.Ok(new { Ready = true })
+                    : Results.Problem("Database not initialized", statusCode: 503);
+            });
 
-            // Database initialization and seeding
+            app.MapGet("/swagger", () => Results.Redirect("/"));
+
+            app.MapControllers();
+
+            // Database initialization and seeding (non-blocking resilience improvements)
             using (var scope = app.Services.CreateScope())
             {
+                var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
                 try
                 {
+                    var skipMigrations = (Environment.GetEnvironmentVariable("SKIP_DB_MIGRATIONS") ?? "false").Equals("true", StringComparison.OrdinalIgnoreCase);
                     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                     var authService = scope.ServiceProvider.GetRequiredService<IAuthService>();
-                    var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
-                    // Ensure database is created (in production, use migrations)
-                    if (app.Environment.IsDevelopment())
+                    if (skipMigrations)
                     {
-                        await dbContext.Database.EnsureCreatedAsync();
+                        scopedLogger.LogWarning("SKIP_DB_MIGRATIONS=true => Skipping EnsureCreated/Migrate calls.");
                     }
                     else
                     {
-                        // In production, use migrations
-                        await dbContext.Database.MigrateAsync();
+                        if (app.Environment.IsDevelopment())
+                        {
+                            scopedLogger.LogInformation("Ensuring database is created (Development)");
+                            await dbContext.Database.EnsureCreatedAsync();
+                        }
+                        else
+                        {
+                            scopedLogger.LogInformation("Applying migrations (Production/Non-Development)");
+                            await dbContext.Database.MigrateAsync();
+                        }
                     }
 
-                    // Seed default admin user
                     await authService.SeedDefaultAdminAsync();
-                    
                     scopedLogger.LogInformation("Database initialization completed successfully");
                 }
                 catch (Exception ex)
                 {
-                    var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-                    scopedLogger.LogError(ex, "An error occurred while initializing the database");
-                    
-                    // In production, you might want to throw here to prevent startup with a broken database
-                    if (!app.Environment.IsDevelopment())
+                    dbReady = false; // mark not ready
+                    var inner = ex.InnerException?.Message;
+                    scopedLogger.LogError(ex, "Database initialization failed. Inner={Inner}", inner);
+                    // Do NOT rethrow in production to avoid process crash & connection reset.
+                    if (app.Environment.IsDevelopment())
                     {
-                        throw;
+                        throw; // In dev we still want to know immediately.
                     }
                 }
             }
 
-            // Logging startup information
-            logger.LogInformation("Elzahy Portfolio API started successfully");
-            logger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
-            logger.LogInformation("Database: {DatabaseType}", 
-                connectionString.Contains("mysql", StringComparison.OrdinalIgnoreCase) ? "MySQL" : "SQL Server");
-
+            logger.LogInformation("Elzahy Portfolio API started. Provider={Provider}", string.IsNullOrWhiteSpace(mySqlEnvConnection) ? "SqlServer" : "MySql");
             await app.RunAsync();
         }
     }

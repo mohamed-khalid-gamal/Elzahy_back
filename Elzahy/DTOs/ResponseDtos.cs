@@ -33,12 +33,16 @@ namespace Elzahy.DTOs
         public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
         public bool HasPrevious => PageNumber > 1;
         public bool HasNext => PageNumber < TotalPages;
+        public int? NextPage => HasNext ? PageNumber + 1 : null;
+        public int? PrevPage => HasPrevious ? PageNumber - 1 : null;
     }
     
     public class ErrorDetails
     {
         public string Message { get; set; } = string.Empty;
         public int? InternalCode { get; set; }
+        public string? Details { get; set; }
+        public string? TraceId { get; set; }
     }
     
     public class AuthResponseDto
@@ -108,6 +112,60 @@ namespace Elzahy.DTOs
         public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
     }
 
+    public class ProjectTranslationDto
+    {
+        public string Language { get; set; } = string.Empty;
+        public string Direction { get; set; } = string.Empty; // RTL or LTR
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+
+        public static ProjectTranslationDto FromTranslation(ProjectTranslation t)
+        {
+            return new ProjectTranslationDto
+            {
+                Language = t.Language,
+                Direction = t.Direction.ToString(),
+                Title = t.Title,
+                Description = t.Description
+            };
+        }
+    }
+
+    public class ProjectVideoDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string CreatedAt { get; set; } = string.Empty;
+        public string UpdatedAt { get; set; } = string.Empty;
+        public string VideoUrl { get; set; } = string.Empty; // URL to video file
+        public string ContentType { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public long FileSize { get; set; }
+        public string? Description { get; set; }
+        public bool IsMainVideo { get; set; }
+        public int SortOrder { get; set; }
+        public string ProjectId { get; set; } = string.Empty;
+        public string? CreatedByName { get; set; }
+
+        public static ProjectVideoDto FromProjectVideo(ProjectVideo video)
+        {
+            return new ProjectVideoDto
+            {
+                Id = video.Id.ToString(),
+                CreatedAt = video.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                UpdatedAt = video.UpdatedAt.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                VideoUrl = video.WebUrl,
+                ContentType = video.ContentType,
+                FileName = video.FileName,
+                FileSize = video.FileSize,
+                Description = video.Description,
+                IsMainVideo = video.IsMainVideo,
+                SortOrder = video.SortOrder,
+                ProjectId = video.ProjectId.ToString(),
+                CreatedByName = video.CreatedBy?.Name
+            };
+        }
+    }
+
     public class ProjectDto
     {
         public string Id { get; set; } = string.Empty;
@@ -117,7 +175,23 @@ namespace Elzahy.DTOs
         public string Description { get; set; } = string.Empty;
         public List<ProjectImageDto> Images { get; set; } = new();
         public ProjectImageDto? MainImage { get; set; }
+        public List<ProjectVideoDto> Videos { get; set; } = new();
+        public ProjectVideoDto? MainVideo { get; set; }
         public string Status { get; set; } = string.Empty;
+        
+        // Real Estate Specific Fields
+        public string? CompanyUrl { get; set; }
+        public string? GoogleMapsUrl { get; set; }
+        public string? Location { get; set; }
+        public string? PropertyType { get; set; }
+        public int? TotalUnits { get; set; }
+        public decimal? ProjectArea { get; set; }
+        public decimal? PriceStart { get; set; }
+        public decimal? PriceEnd { get; set; }
+        public string? PriceCurrency { get; set; }
+        public string? PriceRange => FormatPriceRange();
+        
+        // Legacy fields for compatibility
         public string? TechnologiesUsed { get; set; }
         public string? ProjectUrl { get; set; }
         public string? GitHubUrl { get; set; }
@@ -125,9 +199,30 @@ namespace Elzahy.DTOs
         public DateTime? EndDate { get; set; }
         public string? Client { get; set; }
         public decimal? Budget { get; set; }
+        
         public bool IsPublished { get; set; }
+        public bool IsFeatured { get; set; }
         public int SortOrder { get; set; }
         public string? CreatedByName { get; set; }
+        public List<ProjectTranslationDto> Translations { get; set; } = new();
+
+        private string? FormatPriceRange()
+        {
+            if (!PriceStart.HasValue && !PriceEnd.HasValue) return null;
+            
+            var currency = PriceCurrency ?? "EGP";
+            if (PriceStart.HasValue && PriceEnd.HasValue)
+            {
+                if (PriceStart == PriceEnd)
+                    return $"{PriceStart:N0} {currency}";
+                return $"{PriceStart:N0} - {PriceEnd:N0} {currency}";
+            }
+            if (PriceStart.HasValue)
+                return $"?? {PriceStart:N0} {currency}";
+            if (PriceEnd.HasValue)
+                return $"??? {PriceEnd:N0} {currency}";
+            return null;
+        }
 
         public static ProjectDto FromProject(Project project)
         {
@@ -139,6 +234,19 @@ namespace Elzahy.DTOs
                 Name = project.Name,
                 Description = project.Description,
                 Status = project.Status.ToString(),
+                
+                // Real Estate Fields
+                CompanyUrl = project.CompanyUrl,
+                GoogleMapsUrl = project.GoogleMapsUrl,
+                Location = project.Location,
+                PropertyType = project.PropertyType,
+                TotalUnits = project.TotalUnits,
+                ProjectArea = project.ProjectArea,
+                PriceStart = project.PriceStart,
+                PriceEnd = project.PriceEnd,
+                PriceCurrency = project.PriceCurrency,
+                
+                // Legacy fields
                 TechnologiesUsed = project.TechnologiesUsed,
                 ProjectUrl = project.ProjectUrl,
                 GitHubUrl = project.GitHubUrl,
@@ -146,7 +254,9 @@ namespace Elzahy.DTOs
                 EndDate = project.EndDate,
                 Client = project.Client,
                 Budget = project.Budget,
+                
                 IsPublished = project.IsPublished,
+                IsFeatured = project.IsFeatured,
                 SortOrder = project.SortOrder,
                 CreatedByName = project.CreatedBy?.Name
             };
@@ -163,6 +273,27 @@ namespace Elzahy.DTOs
                     .OrderBy(i => i.SortOrder)
                     .Select(ProjectImageDto.FromProjectImage)
                     .FirstOrDefault();
+            }
+
+            if (project.Videos?.Any() == true)
+            {
+                projectDto.Videos = project.Videos
+                    .OrderBy(v => v.SortOrder)
+                    .Select(ProjectVideoDto.FromProjectVideo)
+                    .ToList();
+
+                projectDto.MainVideo = project.Videos
+                    .Where(v => v.IsMainVideo)
+                    .OrderBy(v => v.SortOrder)
+                    .Select(ProjectVideoDto.FromProjectVideo)
+                    .FirstOrDefault();
+            }
+
+            if (project.Translations?.Any() == true)
+            {
+                projectDto.Translations = project.Translations
+                    .Select(ProjectTranslationDto.FromTranslation)
+                    .ToList();
             }
 
             return projectDto;
@@ -256,9 +387,10 @@ namespace Elzahy.DTOs
         public string Id { get; set; } = string.Empty;
         public string CreatedAt { get; set; } = string.Empty;
         public string UpdatedAt { get; set; } = string.Empty;
-        public string ImageData { get; set; } = string.Empty; // Base64 encoded image
+        public string ImageUrl { get; set; } = string.Empty; // URL to image file
         public string ContentType { get; set; } = string.Empty;
         public string FileName { get; set; } = string.Empty;
+        public long FileSize { get; set; }
         public string? Description { get; set; }
         public bool IsMainImage { get; set; }
         public int SortOrder { get; set; }
@@ -272,9 +404,10 @@ namespace Elzahy.DTOs
                 Id = image.Id.ToString(),
                 CreatedAt = image.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
                 UpdatedAt = image.UpdatedAt.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
-                ImageData = Convert.ToBase64String(image.ImageData),
+                ImageUrl = image.WebUrl,
                 ContentType = image.ContentType,
                 FileName = image.FileName,
+                FileSize = image.FileSize,
                 Description = image.Description,
                 IsMainImage = image.IsMainImage,
                 SortOrder = image.SortOrder,
@@ -359,5 +492,79 @@ namespace Elzahy.DTOs
                 HasPendingAdminRequest = hasPendingRequest
             };
         }
+    }
+
+    // Real Estate Summary DTOs for quick overview
+    public class ProjectSummaryDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public string? Location { get; set; }
+        public string? PropertyType { get; set; }
+        public string? PriceRange { get; set; }
+        public ProjectImageDto? MainImage { get; set; }
+        public bool IsFeatured { get; set; }
+        public List<ProjectTranslationDto> Translations { get; set; } = new();
+        
+        public static ProjectSummaryDto FromProject(Project project)
+        {
+            var summary = new ProjectSummaryDto
+            {
+                Id = project.Id.ToString(),
+                Name = project.Name,
+                Status = project.Status.ToString(),
+                Location = project.Location,
+                PropertyType = project.PropertyType,
+                IsFeatured = project.IsFeatured
+            };
+
+            // Format price range
+            if (project.PriceStart.HasValue || project.PriceEnd.HasValue)
+            {
+                var currency = project.PriceCurrency ?? "EGP";
+                if (project.PriceStart.HasValue && project.PriceEnd.HasValue)
+                {
+                    summary.PriceRange = project.PriceStart == project.PriceEnd 
+                        ? $"{project.PriceStart:N0} {currency}"
+                        : $"{project.PriceStart:N0} - {project.PriceEnd:N0} {currency}";
+                }
+                else if (project.PriceStart.HasValue)
+                {
+                    summary.PriceRange = $"?? {project.PriceStart:N0} {currency}";
+                }
+                else if (project.PriceEnd.HasValue)
+                {
+                    summary.PriceRange = $"??? {project.PriceEnd:N0} {currency}";
+                }
+            }
+
+            // Main image
+            if (project.Images?.Any() == true)
+            {
+                var mainImage = project.Images.FirstOrDefault(i => i.IsMainImage) ?? project.Images.First();
+                summary.MainImage = ProjectImageDto.FromProjectImage(mainImage);
+            }
+
+            // Translations
+            if (project.Translations?.Any() == true)
+            {
+                summary.Translations = project.Translations
+                    .Select(ProjectTranslationDto.FromTranslation)
+                    .ToList();
+            }
+
+            return summary;
+        }
+    }
+
+    // File storage result DTOs
+    public class FileUploadResult
+    {
+        public string FilePath { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public long FileSize { get; set; }
+        public string WebUrl { get; set; } = string.Empty;
     }
 }

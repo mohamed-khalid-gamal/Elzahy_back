@@ -84,6 +84,14 @@ namespace Elzahy.Services
                     return ApiResponse<AuthResponseDto>.Failure("User with this email already exists", 4003);
                 }
                 
+                // Determine if this should be the first admin (no existing admins)
+                var hasAnyAdmin = await _context.Users.AnyAsync(u => u.Role == "Admin");
+                var assignAdminRole = !hasAnyAdmin; // first ever user becomes Admin automatically
+                if (assignAdminRole)
+                {
+                    _logger.LogInformation("No admins found. First registered user {Email} will be granted Admin role automatically.", email);
+                }
+                
                 // Create new user
                 var user = new User
                 {
@@ -92,14 +100,15 @@ namespace Elzahy.Services
                     PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
                     Language = "en-US",
                     EmailConfirmationToken = Guid.NewGuid().ToString(),
-                    EmailConfirmationTokenExpiry = DateTime.UtcNow.AddHours(24)
+                    EmailConfirmationTokenExpiry = DateTime.UtcNow.AddHours(24),
+                    Role = assignAdminRole ? "Admin" : "User"
                 };
                 
                 _context.Users.Add(user);
                 await _context.SaveChangesAsync();
 
-                // If user requested admin role, create admin request
-                if (request.RequestAdminRole)
+                // If user requested admin role and we didn't auto-assign admin (i.e., admins already exist), create admin request
+                if (request.RequestAdminRole && !assignAdminRole)
                 {
                     var adminRequest = new AdminRequest
                     {
@@ -134,7 +143,7 @@ namespace Elzahy.Services
                 _context.RefreshTokens.Add(refreshTokenEntity);
                 await _context.SaveChangesAsync();
 
-                _logger.LogInformation("User {Email} registered successfully", email);
+                _logger.LogInformation("User {Email} registered successfully with role {Role}", email, user.Role);
                 
                 var response = new AuthResponseDto
                 {

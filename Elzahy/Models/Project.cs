@@ -4,9 +4,9 @@ namespace Elzahy.Models
 {
     public enum ProjectStatus
     {
-        Current,
-        Future,
-        Past
+        Current,        // Under Construction / Current Projects
+        Future,         // Planned / Future Projects
+        Past           // Completed / Past Projects
     }
 
     public class Project
@@ -29,6 +29,31 @@ namespace Elzahy.Models
         [Required]
         public ProjectStatus Status { get; set; }
         
+        // Real Estate Specific Fields
+        [StringLength(500)]
+        public string? CompanyUrl { get; set; }
+
+        [StringLength(500)]
+        public string? GoogleMapsUrl { get; set; }
+
+        [StringLength(200)]
+        public string? Location { get; set; } // Property location
+
+        [StringLength(100)]
+        public string? PropertyType { get; set; } // e.g., Residential, Commercial, Mixed-use
+
+        public int? TotalUnits { get; set; } // Number of units in the project
+
+        public decimal? ProjectArea { get; set; } // Total area in square meters
+
+        public decimal? PriceStart { get; set; } // Starting price
+
+        public decimal? PriceEnd { get; set; } // Ending price
+
+        [StringLength(10)]
+        public string? PriceCurrency { get; set; } = "EGP"; // Default to Egyptian Pound
+        
+        // Legacy fields for compatibility (marked for potential future removal)
         [StringLength(500)]
         public string? TechnologiesUsed { get; set; }
         
@@ -50,11 +75,19 @@ namespace Elzahy.Models
         
         public int SortOrder { get; set; } = 0;
         
+        public bool IsFeatured { get; set; } = false; // Featured projects
+        
         // Navigation properties
         public Guid? CreatedByUserId { get; set; }
         public virtual User? CreatedBy { get; set; }
         
         // Multiple images support
         public virtual ICollection<ProjectImage> Images { get; set; } = new List<ProjectImage>();
+
+        // Multiple videos support
+        public virtual ICollection<ProjectVideo> Videos { get; set; } = new List<ProjectVideo>();
+
+        // Translations for multi-language Title/Description
+        public virtual ICollection<ProjectTranslation> Translations { get; set; } = new List<ProjectTranslation>();
     }
 }

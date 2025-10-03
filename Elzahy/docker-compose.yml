@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  elzahy-api:
+    build:
+      context: .
+      dockerfile: Elzahy/Dockerfile
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - DOTNET_ENVIRONMENT=Production
+      - MYSQL_CONNECTION_STRING=Server=db28000.public.databaseasp.net; Database=db28000; User Id=db28000; Password=gZ=6-8HcAd7%; Encrypt=False; MultipleActiveResultSets=True;
+      - DOTNET_JWT_KEY=MyVerySecretKeyForJWTTokenGeneration2024!@#$$%^&*()_+
+      - JWT__ISSUER=Elzahy
+      - JWT__AUDIENCE=Elzahy-Users
+      - APP__BASEURL=https://your-production-domain.com
+      - FRONTEND_URL=https://your-frontend-domain.com
+      - DOTNET_DATAPROTECTION_KEYS=/app/keys
+      - EMAIL__FROM=net16654@gmail.com
+      - EMAIL__SMTPHOST=smtp.gmail.com
+      - EMAIL__SMTPPORT=587
+      - EMAIL__SMTPUSER=net16654@gmail.com
+      - EMAIL__SMTPPASSWORD=kitl fdix kbwv ktjc
+    volumes:
+      - ./keys:/app/keys
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  keys:
+    driver: local

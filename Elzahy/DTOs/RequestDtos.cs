@@ -147,6 +147,7 @@ namespace Elzahy.DTOs
         public string NewPassword { get; set; } = string.Empty;
     }
 
+    // Legacy DTOs for backward compatibility
     public class CreateProjectRequestDto
     {
         [Required]
@@ -259,7 +260,7 @@ namespace Elzahy.DTOs
         public int PageSize { get; set; } = 10;
     }
 
-    // Form data DTOs for handling file uploads
+    // Enhanced Real Estate Project DTOs
     public class CreateProjectFormRequestDto
     {
         [Required]
@@ -271,10 +272,24 @@ namespace Elzahy.DTOs
         
         public List<IFormFile>? Images { get; set; }
         public int? MainImageIndex { get; set; } // Index of the main image in the Images list
+        public List<IFormFile>? Videos { get; set; }
+        public int? MainVideoIndex { get; set; }
         
         [Required]
         public ProjectStatus Status { get; set; }
         
+        // Real Estate Specific Fields
+        public string? CompanyUrl { get; set; }
+        public string? GoogleMapsUrl { get; set; }
+        public string? Location { get; set; }
+        public string? PropertyType { get; set; }
+        public int? TotalUnits { get; set; }
+        public decimal? ProjectArea { get; set; }
+        public decimal? PriceStart { get; set; }
+        public decimal? PriceEnd { get; set; }
+        public string? PriceCurrency { get; set; } = "EGP";
+        
+        // Legacy fields for compatibility
         public string? TechnologiesUsed { get; set; }
         public string? ProjectUrl { get; set; }
         public string? GitHubUrl { get; set; }
@@ -282,8 +297,13 @@ namespace Elzahy.DTOs
         public DateTime? EndDate { get; set; }
         public string? Client { get; set; }
         public decimal? Budget { get; set; }
+        
         public bool IsPublished { get; set; } = true;
+        public bool IsFeatured { get; set; } = false;
         public int SortOrder { get; set; } = 0;
+
+        // Optional initial translations
+        public List<ProjectTranslationUpsertDto>? Translations { get; set; }
     }
 
     public class UpdateProjectFormRequestDto
@@ -293,7 +313,25 @@ namespace Elzahy.DTOs
         public List<IFormFile>? NewImages { get; set; }
         public List<Guid>? RemoveImageIds { get; set; }
         public Guid? MainImageId { get; set; }
+
+        public List<IFormFile>? NewVideos { get; set; }
+        public List<Guid>? RemoveVideoIds { get; set; }
+        public Guid? MainVideoId { get; set; }
+
         public ProjectStatus? Status { get; set; }
+        
+        // Real Estate Specific Fields
+        public string? CompanyUrl { get; set; }
+        public string? GoogleMapsUrl { get; set; }
+        public string? Location { get; set; }
+        public string? PropertyType { get; set; }
+        public int? TotalUnits { get; set; }
+        public decimal? ProjectArea { get; set; }
+        public decimal? PriceStart { get; set; }
+        public decimal? PriceEnd { get; set; }
+        public string? PriceCurrency { get; set; }
+        
+        // Legacy compatibility
         public string? TechnologiesUsed { get; set; }
         public string? ProjectUrl { get; set; }
         public string? GitHubUrl { get; set; }
@@ -302,7 +340,47 @@ namespace Elzahy.DTOs
         public string? Client { get; set; }
         public decimal? Budget { get; set; }
         public bool? IsPublished { get; set; }
+        public bool? IsFeatured { get; set; }
         public int? SortOrder { get; set; }
+
+        public List<ProjectTranslationUpsertDto>? Translations { get; set; }
+    }
+
+    public class ProjectTranslationUpsertDto
+    {
+        [Required]
+        [StringLength(10)]
+        public string Language { get; set; } = "ar";
+        
+        [Required]
+        public TextDirection Direction { get; set; } = TextDirection.RTL;
+        
+        [Required]
+        [StringLength(200)]
+        public string Title { get; set; } = string.Empty;
+        
+        [Required]
+        public string Description { get; set; } = string.Empty;
+    }
+
+    // Enhanced Project Filter DTO for better search and pagination
+    public class ProjectFilterDto
+    {
+        public ProjectStatus? Status { get; set; }
+        public bool? IsPublished { get; set; }
+        public bool? IsFeatured { get; set; }
+        public string? PropertyType { get; set; }
+        public string? Location { get; set; }
+        public decimal? PriceMin { get; set; }
+        public decimal? PriceMax { get; set; }
+        public string? SearchTerm { get; set; } // Search in name, description, location
+        public string? Language { get; set; } // Filter by translation language
+        public DateTime? StartDateFrom { get; set; }
+        public DateTime? StartDateTo { get; set; }
+        public string? SortBy { get; set; } = "SortOrder"; // SortOrder, CreatedAt, Name, StartDate, PriceStart
+        public bool SortDescending { get; set; } = false;
+        public int Page { get; set; } = 1;
+        public int PageSize { get; set; } = 12; // Default to 12 for better grid layout
     }
 
     public class CreateAwardFormRequestDto
